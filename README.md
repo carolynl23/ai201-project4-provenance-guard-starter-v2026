@@ -39,6 +39,33 @@
 <!-- The path a submission takes, from arriving to the label a reader sees.
      Six or seven steps — this is the trace you wrote in Milestone 1. -->
 
+1. **The request arrives at `POST /submit`** (`app.py`) as JSON:
+   `{"text": ..., "creator_id": ...}`. *Adds:* nothing yet. (Unit 8: the rate
+   limiter checks the caller here first. A 429 is logged with
+   `audit.log_rejection`.)
+2. **The route checks the input.** `text` must be a string with at least 25
+   words and at most 20,000 characters. `creator_id` must be a non-empty
+   string. Anything else gets a 4xx with `{error, message}`, is logged as a
+   rejection, and stops here. *Adds:* a `content_id` (uuid4), which is created
+   only once the input passes.
+3. **Signal one, `detector.model_signal(text)`.** gpt2 reads the first 400
+   tokens and measures how predictable they are (perplexity). That number is
+   squashed onto 0–1. *Adds:* `model_score` (higher = more likely AI).
+4. **Signal two, `stylometry.style_signal(text)`.** Measures the shape of the
+   whole text: sentence-length spread, vocabulary variety and punctuation.
+   *Adds:* `style_score` (higher = more likely AI).
+5. **The combining rule, `scoring.combine_signals(model, style)`.** Turns the
+   two scores into one. *Adds:* `confidence`, the combined 0–1 score.
+6. **The label mapping, `scoring.score_to_label(confidence)`.** Compares the
+   score with the thresholds in `config.py`. *Adds:* `guess`
+   (`ai` / `unsure` / `human`) and `label`, the sentence a reader sees.
+7. **Log, then answer.** `audit.log_decision(...)` writes all nine fields with
+   `status: "decided"`, and the route returns the response JSON. The reader
+   sees the `label`. If they disagree with it, they send the `content_id` to
+   `POST /appeal`, which checks that the id exists, writes
+   `audit.log_appeal(...)` and moves the item to `under_review`.
+
+Full field-by-field contracts for both endpoints are in [DESIGN.md](DESIGN.md).
 
 
 ---
@@ -53,19 +80,60 @@
 
 ### Signal one — the model signal
 
-**What it measures:**
+**What it measures:** How predictable the text is to a small language model
+(gpt2). This is perplexity over the first 400 tokens, mapped onto 0–1 by a
+logistic curve centred at perplexity 45. Low perplexity gives a high score,
+which means more likely AI.
 
-**Why that might differ between human and AI writing:**
+**Why that might differ between human and AI writing:** A language model
+generates text by picking likely next words, so its output is text a model
+finds easy to predict. People make odder, more specific choices that a model
+doesn't expect.
 
-**What it can't see:**
+**What it can't see:** Who actually wrote the words. It measures how ordinary
+the wording is, and that is not the same as authorship:
+- **Plain human writing scores as AI.** Short sentences and common words are
+  typical of second-language writers, younger writers, people writing plainly on
+  purpose and formulaic genres such as lab reports. All of these look
+  "predictable". So do famous or boilerplate passages, such as quotations or
+  standard legal text.
+- **Unusual AI writing scores as human.** AI text with rare words, ornate
+  phrasing, high-temperature sampling or a paraphrase pass looks "surprising"
+  to gpt2.
+- **It only reads the first 400 tokens.** If a human writes the opening and AI
+  writes the rest, the AI part is never scored.
+- **gpt2 is small and old.** What gpt2 finds predictable is not necessarily
+  what a modern model writes. Technical vocabulary also raises perplexity
+  whoever wrote the text.
 
 ### Signal two — the style signal
 
-**What it measures:**
+**What it measures:** The shape of the text without its meaning. It combines
+three measures: how much sentence length varies (standard deviation over
+mean), how much vocabulary repeats (type-token ratio), and how much and what
+kind of punctuation is used. The result is a 0–1 score where higher means more
+likely AI.
 
-**Why that might differ between human and AI writing:**
+**Why that might differ between human and AI writing:** Generated prose tends
+towards even, mid-length sentences and a narrower vocabulary. Human writing is
+lumpier, with a three-word sentence next to a forty-word one.
 
-**What it can't see:**
+**What it can't see:** Anything about content. It cannot read:
+- **Cheap surface edits move it.** Adding typos raises vocabulary variety,
+  chopping or merging sentences changes the spread, and pasting in a quotation
+  or some dashes changes the punctuation. None of these change who wrote the
+  text.
+- **Length distorts it.** Type-token ratio falls as text gets longer, so a long
+  human essay can look "repetitive". A one- or two-sentence submission has no
+  spread to measure at all.
+- **Its assumptions can be backwards.** Modern AI uses em dashes and
+  semicolons heavily, so punctuation variety may point the wrong way. Poetry,
+  lists, dialogue and code break the sentence splitter.
+- **It shares signal one's worst blind spot.** A plain human writer with even
+  sentences and a small vocabulary scores as AI here too. The two signals are
+  *not* independent on the case that matters most: the false positive (see
+  [DESIGN.md](DESIGN.md#tracing-the-false-positive)). When both are wrong,
+  combining them does not cancel the error.
 
 ### The combining rule
 
