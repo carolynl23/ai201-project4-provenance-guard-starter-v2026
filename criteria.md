@@ -42,62 +42,94 @@ Two things worth knowing before you pick numbers:
   a **miss**.
 
 ---
-## 1.
+## 1. My own writing is not called AI, and is mostly called human
 
-<!-- Your criterion. It must name a number. -->
+Of 10 pieces I wrote myself, at least 3 of them deliberately plain (short
+sentences and everyday words, the writer from my false-positive trace in
+`DESIGN.md`), **at most 1 is labelled high-confidence AI** and **at least 6
+are labelled high-confidence human**. Both parts have to hold in every one of
+the three trials.
 
-
-
-**Why this target:**
-
-
-
----
-
-## 2.
-
-<!-- Your criterion. -->
-
-
-
-**Why this target:**
-
-
+**Why this target:** On a writing site, a wrong accusation costs the writer far
+more than a missed detection costs the site, so I allow at most 1 in 10. The
+"at least 6 human" half stops me cheating my way to that number. If I widened
+the unsure band until nothing was ever called AI, the first half would pass
+easily, but real writers would get a shrug instead of an answer. The plain
+pieces are there because both of my signals share that blind spot. A test set
+of only my fancier writing would hide the failure I'm most worried about.
 
 ---
 
-## 3.
+## 2. Clearly-AI and clearly-human text are far apart
 
-<!-- Your criterion. -->
+Across 5 clearly AI-generated texts (unedited model output) and 5 clearly
+human texts (my own writing, not the plain pieces), the **mean `confidence` of
+the AI set is at least 0.30 higher than the mean of the human set**. Also, **at
+most 1 human text scores higher than the lowest-scoring AI text**. Both hold in
+every trial.
 
-
-
-**Why this target:**
-
-
-
----
-
-## 4.
-
-<!-- Your criterion. -->
-
-
-
-**Why this target:**
-
-
+**Why this target:** My unsure band is roughly 0.35 to 0.65+, which is about
+0.30 wide. If the easy cases aren't at least that far apart, they can't land
+on opposite sides of it, and every threshold I choose is guesswork. The overlap
+limit is there because two averages can be 0.30 apart while a single bad text
+still crosses over.
 
 ---
 
-## 5.
+## 3. All three labels are reachable, and the AI label still catches AI
 
-<!-- Your criterion. -->
+Running 9 inputs (3 I expect to be AI, 3 I expect to be human, 3 borderline),
+**each of the three labels is produced at least once** in every trial. Also,
+of the 5 clearly AI-generated texts from criterion 2, **at least 3 are labelled
+high-confidence AI** in every trial.
 
+**Why this target:** A label no score can reach means there's a gap in my
+ranges. The starter even warns that a 0.5 stub makes the human label nearly
+impossible to reach. The second half is criterion 1's counterweight. My plan
+is to make the AI label hard to reach, and this puts a floor under that plan:
+if I raise the threshold so far that real AI output stops being caught, I want
+to see it fail here rather than call it a success. I chose 3 of 5 rather than
+5 of 5 deliberately, because I'm accepting some missed AI text to protect
+human writers.
 
+---
 
-**Why this target:**
+## 4. Every appeal is recorded, and every bad appeal is refused
 
+Tested by hand against the running service:
+
+- 5 appeals against real `content_id`s from `/submit`: **5 of 5 return 200**
+  with `status: "under_review"`, and `GET /log` shows **5 appeal entries**,
+  each with the matching `content_id`, the reasoning as written, and the
+  original `creator_id`.
+- 3 appeals against ids that don't exist (one typo of a real id, one made-up
+  id, one empty string): **3 of 3 return 404 or 400**, and **0 appeal entries**
+  are written for them.
+- A second appeal on an id that is already under review **returns 409** and
+  writes no second entry.
+
+**Why this target:** This is ordinary code with no model in it, so anything
+short of 100% is a bug and not a trade-off. The appeal is the only thing that
+stands between a wrongly accused writer and nothing at all. An appeal that
+returns 200 but never reaches the log is worse than one that fails loudly,
+because the writer thinks they've been heard.
+
+---
+
+## 5. Malformed input never crashes the service
+
+Sending these 8 request bodies to `/submit` (empty `text`, whitespace-only
+`text`, `text` missing, `text: null`, `text` as a number, a 24-word `text`, a
+50,000-word `text`, and a JSON list instead of an object), **0 of 8 return a
+5xx**, **8 of 8 return the 4xx status and `error` code listed in
+`DESIGN.md`**, and **8 of 8 leave a rejection entry in the audit log**. The
+service still answers `/ping` afterwards. Holds in every trial.
+
+**Why this target:** Unit 8's attack set will send exactly this kind of input,
+and a 500 tells the caller nothing while also hiding the attack. The
+rejection-log requirement is there because an attack that shows up only as an
+absence is one I'd never find. These are deterministic checks, so the target is
+all of them.
 
 
 ---
