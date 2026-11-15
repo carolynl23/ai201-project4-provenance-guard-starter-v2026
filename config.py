@@ -47,6 +47,20 @@ DETECTOR_MODEL = os.getenv("AI201_DETECTOR_MODEL", "gpt2")
 DETECTOR_MAX_TOKENS = 400
 
 
+# ─── Input limits ────────────────────────────────────────────────────────────
+# What /submit accepts. The contract — and the error each limit produces — is
+# in DESIGN.md; criterion 5 tests it.
+#
+# Under ~25 words neither signal has anything to go on: gpt2 needs a few
+# sentences to be surprised by, and sentence-length spread needs more than one
+# sentence. Over 20,000 characters is far past anything gpt2 reads (it stops at
+# DETECTOR_MAX_TOKENS) and only costs time.
+
+MIN_WORDS = 25
+MAX_TEXT_CHARS = 20_000
+MAX_CREATOR_ID_CHARS = 100
+
+
 # ─── Scoring (Milestone 4) ───────────────────────────────────────────────────
 # How much each signal counts toward the combined score.
 #

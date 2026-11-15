@@ -30,6 +30,8 @@ from flask import Flask, jsonify, request
 
 import audit
 import config
+import detector
+import stylometry
 
 app = Flask(__name__)
 
@@ -199,16 +201,100 @@ def submit():
     what should this do when `text` is missing, empty, or enormous? A crash on
     a malformed input is one of the most common real failures there is.
     """
+    payload = request.get_json(silent=True)
+
+    # A body that parses but isn't an object — a bare list, a string, null —
+    # has no fields to read. Refuse it before anything calls .get on it.
+    if not isinstance(payload, dict):
+        return _reject(400, "invalid_json",
+                       "Send a JSON object like {\"text\": \"...\", \"creator_id\": \"...\"}.")
+
+    raw_creator = payload.get("creator_id")
+    log_as = raw_creator if isinstance(raw_creator, str) and raw_creator.strip() else "unknown"
+
+    text = payload.get("text")
+    if text is None:
+        return _reject(400, "missing_field", "The request needs a \"text\" field.",
+                       creator_id=log_as, field="text")
+    if not isinstance(text, str):
+        return _reject(400, "invalid_field", "\"text\" has to be a string.",
+                       creator_id=log_as, field="text")
+
+    if raw_creator is None:
+        return _reject(400, "missing_field", "The request needs a \"creator_id\" field.",
+                       field="creator_id")
+    if (not isinstance(raw_creator, str) or not raw_creator.strip()
+            or len(raw_creator) > config.MAX_CREATOR_ID_CHARS):
+        return _reject(400, "invalid_field",
+                       f"\"creator_id\" has to be a non-empty string of at most "
+                       f"{config.MAX_CREATOR_ID_CHARS} characters.",
+                       field="creator_id")
+    creator_id = raw_creator.strip()
+
+    # Length first, so an enormous body is turned away before it's split into words.
+    text = text.strip()
+    if len(text) > config.MAX_TEXT_CHARS:
+        return _reject(413, "text_too_long",
+                       f"That's too long to check. Send at most {config.MAX_TEXT_CHARS:,} characters.",
+                       creator_id=creator_id, max_chars=config.MAX_TEXT_CHARS)
+    if len(stylometry.words(text)) < config.MIN_WORDS:
+        return _reject(422, "text_too_short",
+                       f"That's too short to judge fairly. Send at least {config.MIN_WORDS} words.",
+                       creator_id=creator_id, min_words=config.MIN_WORDS)
+
+    try:
+        model_score = detector.model_signal(text)
+    except detector.DetectorUnavailable:
+        return _reject(503, "detector_unavailable",
+                       "The checker isn't ready yet. Try again in a minute.",
+                       creator_id=creator_id)
+    except ValueError:
+        # perplexity() refuses text under three tokens. MIN_WORDS should make
+        # this unreachable, but a 500 is never a designed answer.
+        return _reject(422, "text_too_short",
+                       f"That's too short to judge fairly. Send at least {config.MIN_WORDS} words.",
+                       creator_id=creator_id, min_words=config.MIN_WORDS)
+
+    # Placeholders until Milestone 4 (style signal, combining rule) and
+    # Milestone 5 (label). style_score is None, not a made-up number, so
+    # nothing downstream mistakes "not computed" for a real reading.
+    style_score = None
+    confidence = 0.5
+    guess, label = "unsure", "PLACEHOLDER — the label arrives in Milestone 5."
+
+    content_id = str(uuid.uuid4())
+    audit.log_decision(
+        content_id=content_id,
+        creator_id=creator_id,
+        guess=guess,
+        model_score=model_score,
+        style_score=style_score,
+        combined_score=confidence,
+        label=label,
+        status="decided",
+    )
+
     return jsonify({
-        "content_id": "hardcoded",
-        "creator_id": "hardcoded",
-        "guess": "unsure",
-        "confidence": 0.5,
-        "label": "PLACEHOLDER",
-        "model_score": 0.5,
-        "style_score": 0.5,
+        "content_id": content_id,
+        "creator_id": creator_id,
+        "guess": guess,
+        "confidence": confidence,
+        "label": label,
+        "model_score": model_score,
+        "style_score": style_score,
         "status": "decided",
     })
+
+
+def _reject(status: int, error: str, message: str, creator_id: str = "unknown", **extra):
+    """
+    Refuse a request: log it, then answer in the shape DESIGN.md promises.
+
+    `extra` (which field, which limit) goes in both, so the log entry says
+    exactly what the caller was told. The text itself is never logged.
+    """
+    audit.log_rejection(creator_id=creator_id, reason=error, http_status=status, **extra)
+    return jsonify({"error": error, "message": message, **extra}), status
 
 
 @app.post("/appeal")

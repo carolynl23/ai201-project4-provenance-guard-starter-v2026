@@ -189,15 +189,44 @@ lumpier, with a three-word sentence next to a forty-word one.
      two off the response, so leaving them out costs you next unit's
      diagnostics. -->
 
+*Milestone 3: one signal wired in. `confidence`, `guess` and `label` are
+placeholders, and `style_score` is `null` until Milestone 4.*
+
 ```bash
 $ curl -X POST http://127.0.0.1:5000/submit \
   -H "Content-Type: application/json" \
-  -d '{"text": "...", "creator_id": "..."}'
+  -d '{"text": "I started working at the library last summer. At first I did not like it very much. The work was quiet and I did not know anyone. After a few weeks I made some friends and I started to enjoy it. Now I look forward to my shifts every week.", "creator_id": "carol"}'
 ```
 
 ```json
-
+{
+    "confidence": 0.5,
+    "content_id": "d576c975-2d83-4300-8678-748277eec653",
+    "creator_id": "carol",
+    "guess": "unsure",
+    "label": "PLACEHOLDER — the label arrives in Milestone 5.",
+    "model_score": 0.8357,
+    "status": "decided",
+    "style_score": null
+}
 ```
+
+That paragraph is plain, human-style writing, and signal one already scores it
+0.84, almost as AI-like as obvious AI text (0.89). This is the false positive
+from `DESIGN.md`, before any combining rule exists.
+
+**A rejected submission** (too short), which is still logged:
+
+```bash
+$ curl -X POST http://127.0.0.1:5000/submit \
+  -H "Content-Type: application/json" \
+  -d '{"text": "", "creator_id": "eval"}'
+```
+
+```json
+{"error":"text_too_short","message":"That's too short to judge fairly. Send at least 25 words.","min_words":25}
+```
+HTTP 422.
 
 **An appeal**
 
@@ -213,12 +242,29 @@ $ curl -X POST http://127.0.0.1:5000/appeal \
 
 **What the log shows afterwards**
 
+*Milestone 3: the submission above, read back from the audit log.*
+
 ```bash
-$ curl "http://127.0.0.1:5000/log?limit=3"
+$ curl "http://127.0.0.1:5000/log?limit=1"
 ```
 
 ```json
-
+{
+    "count": 1,
+    "entries": [
+        {
+            "combined_score": 0.5,
+            "content_id": "d576c975-2d83-4300-8678-748277eec653",
+            "creator_id": "carol",
+            "guess": "unsure",
+            "label": "PLACEHOLDER — the label arrives in Milestone 5.",
+            "model_score": 0.8357,
+            "status": "decided",
+            "style_score": null,
+            "timestamp": "2026-11-15T23:56:52+00:00"
+        }
+    ]
+}
 ```
 
 ---
