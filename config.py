@@ -68,8 +68,18 @@ MAX_CREATOR_ID_CHARS = 100
 # down BEFORE you code it, and to put the numbers in your README. Whatever you
 # decide, it goes here.
 
-WEIGHT_MODEL_SIGNAL = 0.5
-WEIGHT_STYLE_SIGNAL = 0.5
+# Mine: the model signal counts for more because the style signal is the
+# cheapest to game — in calibration, adding one short sentence to AI text moved
+# its sentence-spread measure from fully AI to fully human. The README has the
+# full rule and the calibration numbers behind it.
+WEIGHT_MODEL_SIGNAL = 0.6
+WEIGHT_STYLE_SIGNAL = 0.4
+
+# When the two signals are further apart than this and the average leans AI,
+# the combined score is pulled halfway back toward 0.5 — so neither signal can
+# accuse a writer on its own. (Only on the AI side; see combine_signals.)
+DISAGREEMENT_GAP = 0.4
+DISAGREEMENT_PULL = 0.5
 
 
 # ─── Thresholds (Milestone 5) ────────────────────────────────────────────────
@@ -85,8 +95,12 @@ WEIGHT_STYLE_SIGNAL = 0.5
 # getting through. There is no setting that avoids the trade — only settings
 # that decide who pays for it.
 
-HUMAN_THRESHOLD = 0.35
-AI_THRESHOLD = 0.65
+# Mine: AI is set high on purpose. Plain human-style writing scored 0.77 in
+# calibration and ordinary AI text 0.79–0.90, so 0.80 is about as high as it can
+# go while still catching most unedited AI text (criterion 3). The plain writer
+# sits just under it — that margin is thin, and unit 8 will test it.
+HUMAN_THRESHOLD = 0.40
+AI_THRESHOLD = 0.80
 
 # ⚠️ One thing that catches people out in Milestone 5. A weighted average can
 # only land between its two inputs — so while `style_signal` is still the stub

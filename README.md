@@ -140,16 +140,74 @@ lumpier, with a three-word sentence next to a forty-word one.
 <!-- Write the rule in words, then give the numbers. What happens when the two
      signals disagree? -->
 
-**The rule:**
+**The rule:** Take a weighted average that counts the model signal more than
+the style signal. Then, if the two signals disagree strongly *and* the average
+leans AI, pull the score halfway back toward 0.5. One signal alone can't
+accuse anyone. On the human side the score is left alone, because a wrong
+"human" is the cheap mistake. Gaming the style signal down can't earn a
+"human" label either, because the model's 0.6 weight keeps AI text above 0.5.
 
-**The numbers:**
+**The numbers:** (all in `config.py`)
+- Weights: model **0.6**, style **0.4**. Style is weighted lower because it's
+  the cheapest signal to game. In calibration, adding one three-word sentence
+  to AI text moved its sentence-spread measure from fully AI to fully human.
+- Disagreement: a gap of more than **0.4** between the signals, with an
+  average above 0.5, gets a pull of **0.5** (halfway) toward 0.5.
+- Thresholds: **≤ 0.40 human**, **≥ 0.80 AI**, and unsure in between.
+
+How the style signal is built (`stylometry.py`): three measures, each mapped
+onto 0–1 between two anchor values and averaged equally.
+- **Sentence-length spread** (standard deviation over mean): low means AI.
+- **Type-token ratio** (moving average over 50-word windows): *high* means AI.
+  That is the opposite of the starter's guess, because AI text scored 0.77–0.88
+  and human text 0.74–0.87. It's weak and based on few samples.
+- **Within-sentence punctuation per word:** low means AI.
 
 **Where it lives:** `scoring.py::combine_signals`
 
 <!-- ⚠️ The grader checks your code against that line. If your rule lives
      somewhere else, say where. -->
 
+**The calibration run** (`python calibrate.py`, where every text's source is
+listed):
+
+```
+input               words  spread    ttr  punct   style  model  combined  guess
+-------------------------------------------------------------------------------
+clearly AI             81   0.141  0.879  0.049   0.922  0.883     0.898  ai
+clearly human         112   0.169  0.754  0.107   0.451  0.583     0.530  unsure
+formal human           89   0.712  0.782  0.146   0.115  0.557     0.380  human
+lightly-edited AI      87   0.665  0.920  0.058   0.594  0.800     0.718  unsure
+plain human-style      50   0.234  0.740  0.000   0.675  0.836     0.771  unsure
+AI: essay              76   0.210  0.881  0.118   0.631  0.957     0.826  ai
+AI: casual             78   0.185  0.822  0.038   0.856  0.851     0.853  ai
+AI: review             68   0.152  0.831  0.088   0.670  0.877     0.795  unsure
+AI: explainer          73   0.078  0.765  0.055   0.688  0.920     0.827  ai
+human: terse note      71   0.553  0.873  0.056   0.587  0.141     0.320  human
+
+thresholds: human <= 0.4, ai >= 0.8
+```
+
+Where they **agree**: on clear AI text both are high (0.88 / 0.92). On the
+plain human-style paragraph both are *also* high (0.84 / 0.68). That is the
+shared blind spot, and no combining rule can fix agreement. The high AI
+threshold is what keeps that paragraph at unsure (0.771), and the margin is
+only 0.03.
+
 **A case where my two signals split, and what my rule does with it:**
+The *formal human* text (the Python `decimal` module docs). Signal one says
+0.56, close to a coin flip: technical vocabulary and an ordinary register. The
+style signal says 0.11, clearly human: long and short sentences mixed, with
+parentheses, quotes and a semicolon. The gap is 0.44, which counts as strong
+disagreement. The average (0.38) leans human, so the rule leaves it alone and
+it's labelled human. If the split ran the other way, with the model high and
+the style low on a text averaging above 0.5, the rule would pull it toward 0.5
+and it would land on unsure.
+
+The opposite split showed me the first version of the rule was wrong. The
+course staff's terse note scored model 0.14 and style 0.59. Pulling *both*
+directions dragged it from 0.32 to 0.41, and no text could reach the human
+label. That's why the pull is now one-sided.
 
 
 

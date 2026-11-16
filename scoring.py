@@ -51,12 +51,28 @@ def combine_signals(model_score: float, style_score: float) -> float:
 
     The weights in config.py are placeholders. Change them, or ignore them and
     write a different rule.
+
+    Mine, in words:
+
+      1. Weighted average — model 0.6, style 0.4.
+      2. If the two signals differ by more than DISAGREEMENT_GAP (0.4) AND the
+         average leans AI, it's pulled DISAGREEMENT_PULL (halfway) back toward
+         0.5. One signal alone can't accuse anyone.
+
+    Why only on the AI side: the expensive mistake is one-sided. A first
+    version pulled both ways, and it made the human label unreachable — the
+    course staff's own note (model 0.14, style 0.59) got dragged from 0.32 to
+    0.41. Gaming the style signal down to earn "human" is already blocked by
+    the 0.6 model weight: AI text with model ≈ 0.88 averages above 0.5 even
+    with style at 0.
     """
-    # TODO: replace this
-    return (
+    average = (
         config.WEIGHT_MODEL_SIGNAL * model_score
         + config.WEIGHT_STYLE_SIGNAL * style_score
     )
+    if average > 0.5 and abs(model_score - style_score) > config.DISAGREEMENT_GAP:
+        average = 0.5 + (average - 0.5) * (1 - config.DISAGREEMENT_PULL)
+    return round(min(max(average, 0.0), 1.0), 4)
 
 
 def score_to_label(score: float) -> tuple[str, str]:

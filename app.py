@@ -31,6 +31,7 @@ from flask import Flask, jsonify, request
 import audit
 import config
 import detector
+import scoring
 import stylometry
 
 app = Flask(__name__)
@@ -255,12 +256,11 @@ def submit():
                        f"That's too short to judge fairly. Send at least {config.MIN_WORDS} words.",
                        creator_id=creator_id, min_words=config.MIN_WORDS)
 
-    # Placeholders until Milestone 4 (style signal, combining rule) and
-    # Milestone 5 (label). style_score is None, not a made-up number, so
-    # nothing downstream mistakes "not computed" for a real reading.
-    style_score = None
-    confidence = 0.5
-    guess, label = "unsure", "PLACEHOLDER — the label arrives in Milestone 5."
+    style_score = stylometry.style_signal(text)
+    confidence = scoring.combine_signals(model_score, style_score)
+    # The guess is real; the label text is still score_to_label's placeholder
+    # until Milestone 5.
+    guess, label = scoring.score_to_label(confidence)
 
     content_id = str(uuid.uuid4())
     audit.log_decision(

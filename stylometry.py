@@ -33,6 +33,11 @@ anything together:
 import re
 import statistics
 
+# Window for moving-average type-token ratio. Short enough that a 60-word
+# submission gets a few windows; long enough that "the" repeating isn't
+# the whole story.
+TTR_WINDOW = 50
+
 
 def sentences(text: str) -> list[str]:
     """Split into sentences. Rough and good enough — given to you."""
@@ -63,9 +68,18 @@ def sentence_length_spread(text: str) -> float:
     Watch the edge case: a one-sentence submission has no spread at all, and
     `stdev` raises on fewer than two values. Decide what that should return
     before the attack set decides for you.
+
+    Mine: coefficient of variation (stdev / mean) of words per sentence.
+    0.0 means every sentence is the same length; human prose usually lands
+    0.4–0.8. **Higher means more human.** Fewer than two sentences returns
+    0.0 — and `style_signal` treats that case as "no evidence", not as AI.
     """
-    # TODO: replace this
-    return 0.0
+    lengths = [len(words(s)) for s in sentences(text)]
+    lengths = [n for n in lengths if n > 0]
+    if len(lengths) < 2:
+        return 0.0
+    mean = statistics.mean(lengths)
+    return round(statistics.stdev(lengths) / mean, 4)
 
 
 def type_token_ratio(text: str) -> float:
@@ -79,9 +93,21 @@ def type_token_ratio(text: str) -> float:
     longer, because common words repeat. Two texts of different lengths aren't
     directly comparable on it, and if your test inputs vary a lot in length,
     that alone can look like a signal.
+
+    Mine: moving-average TTR — plain TTR over every 50-word window, averaged —
+    so a 300-word essay and a 60-word paragraph are on the same footing.
+    Under 50 words it falls back to plain TTR. **Higher means more human.**
     """
-    # TODO: replace this
-    return 0.0
+    toks = words(text)
+    if not toks:
+        return 0.0
+    if len(toks) <= TTR_WINDOW:
+        return round(len(set(toks)) / len(toks), 4)
+    ratios = [
+        len(set(toks[i:i + TTR_WINDOW])) / TTR_WINDOW
+        for i in range(len(toks) - TTR_WINDOW + 1)
+    ]
+    return round(statistics.mean(ratios), 4)
 
 
 def punctuation_density(text: str) -> float:
@@ -93,9 +119,17 @@ def punctuation_density(text: str) -> float:
         semicolons, dashes — is a real choice. Semicolons and em dashes are
         more interesting than full stops, because they vary more between
         writers.
+
+    Mine: marks *inside* sentences — commas, semicolons, colons, dashes,
+    brackets, quotes — per word. Full stops are left out because every
+    sentence has one, so they only measure sentence count, which spread
+    already covers. Direction is not obvious; see `style_signal`.
     """
-    # TODO: replace this
-    return 0.0
+    toks = words(text)
+    if not toks:
+        return 0.0
+    marks = len(re.findall(r"[,;:()\[\]\"—–]|--| - ", text))
+    return round(marks / len(toks), 4)
 
 
 # ── Combining them ───────────────────────────────────────────────────────────
@@ -121,9 +155,49 @@ def style_signal(text: str) -> float:
     clearly human, plain conventional human writing, lightly-edited AI — before
     you trust it. Plain and ordinary, not formal: formal prose reads as *human*
     to signal one, and it is plain writing that gets accused.
+
+    Mine: each measure is mapped onto 0–1 "AI-ness" by a clipped straight
+    line between two anchor values (STYLE_ANCHORS), then the three are
+    averaged with equal weight. The anchors come from `python calibrate.py`.
+
+      spread  low  -> AI   (even, marching sentences)
+      ttr     HIGH -> AI   ⚠️ the opposite of the starter's guess. On my
+                           calibration set the AI text scored 0.88 and every
+                           human text 0.74–0.78: modern models reach for
+                           varied, polished words, people repeat their topic
+                           words. Five samples, so recheck on your own ten.
+      punct   low  -> AI   (no brackets, quotes, semicolons)
+
+    A one-sentence text has no spread, so that measure sits at 0.5 — no
+    evidence either way — rather than reading as "perfectly even".
     """
-    # TODO: replace this
-    return 0.5
+    parts = []
+    for name, value in (
+        ("spread", sentence_length_spread(text)),
+        ("ttr", type_token_ratio(text)),
+        ("punct", punctuation_density(text)),
+    ):
+        if name == "spread" and len(sentences(text)) < 2:
+            parts.append(0.5)
+            continue
+        at_human, at_ai = STYLE_ANCHORS[name]
+        parts.append(_scale(value, at_human, at_ai))
+    return round(sum(parts) / len(parts), 4)
+
+
+# The raw value at which each measure reads fully human (0.0) and fully AI
+# (1.0). Between them the score moves in a straight line; outside, it clips.
+STYLE_ANCHORS = {
+    "spread": (0.60, 0.20),
+    "ttr": (0.72, 0.90),
+    "punct": (0.12, 0.04),
+}
+
+
+def _scale(value: float, at_human: float, at_ai: float) -> float:
+    """Map `value` onto 0 (at_human) … 1 (at_ai), clipped. Works either direction."""
+    position = (value - at_human) / (at_ai - at_human)
+    return min(max(position, 0.0), 1.0)
 
 
 if __name__ == "__main__":
