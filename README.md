@@ -222,14 +222,38 @@ label. That's why the pull is now one-sided.
 
 | Label | Score range | The exact text a reader sees |
 |---|---|---|
-| high-confidence human |  |  |
-| unsure |  |  |
-| high-confidence AI |  |  |
+| high-confidence human | 0.00 – 0.40 | We think this was probably written by a person. No automated check can be certain, so "probably" is the strongest thing we ever say. |
+| unsure | 0.40 – 0.80 | We can't tell whether this was written by a person or with an AI tool. That happens with a lot of people's own writing, especially when it's clear and simple, so this result isn't saying you did anything wrong, and we take no action on your work because of it. If you'd still like a person to take a look, you can ask for a review using the submission ID shown with this result. |
+| high-confidence AI | 0.80 – 1.00 | This writing has a lot in common with text produced by AI tools, so we think it may have been written with one. Automated checks like ours can be wrong, especially on plain, straightforward writing. If you wrote this yourself, ask for a review using the submission ID shown with this result, and a person will look at it. Nothing is removed while you wait. In your request, tell us how you wrote it; mentioning drafts or notes you could share helps. |
+
+The ranges come from `scoring.label_ranges()`, and the text lives in
+`scoring.py::LABELS`. All three were reached through `/submit`: the course
+staff's terse note scored 0.32 (human), the plain paragraph 0.77 (unsure) and
+the clearly-AI paragraph 0.90 (AI).
 
 **Why I worded the "unsure" one this way:**
-<!-- It's the hardest of the three. It has to admit uncertainty without
-     sounding like an accusation, because the person reading it may well have
-     written every word themselves. -->
+On a text this service can't call, the most likely reader is the plain writer
+from my false-positive trace. The plain paragraph lands in exactly this band,
+at 0.77. So the label does three things:
+- It names the reason *their kind of writing* lands here, so it doesn't feel
+  like a verdict on them personally.
+- It says outright that nothing happens because of the result.
+- It gives them a way to ask for a review anyway.
+
+**How I tested the wording:** I gave all three labels, with no explanation of
+how the system works, to a fresh Claude session. I asked it to answer as the
+writer: what each label is saying about them, and what they'd do next. What it
+heard, and what I changed:
+- **Human label:** "probably" made it uneasy ("why only fairly sure?"). I added
+  that "probably" is the strongest thing we ever say, so it doesn't read as
+  doubt about them.
+- **Unsure label:** it believed it wasn't being accused. It still wondered
+  whether the result counts against it, and said it would appeal "just to
+  clear it up". I added "we take no action on your work because of it".
+- **AI label:** "my stomach would drop". It wanted to know what happens to its
+  work meanwhile, and whether drafts would help. I added "Nothing is removed
+  while you wait" and the advice about drafts. I left out a review timeline,
+  because this service has none and I won't promise one.
 
 
 
@@ -247,8 +271,9 @@ label. That's why the pull is now one-sided.
      two off the response, so leaving them out costs you next unit's
      diagnostics. -->
 
-*Milestone 3: one signal wired in. `confidence`, `guess` and `label` are
-placeholders, and `style_score` is `null` until Milestone 4.*
+This is the plain, human-style paragraph from my false-positive trace. Signal
+one alone scores it 0.84, almost as AI-like as obvious AI text. The combined
+score of 0.77 keeps it just under the AI line, so it lands on unsure.
 
 ```bash
 $ curl -X POST http://127.0.0.1:5000/submit \
@@ -258,20 +283,16 @@ $ curl -X POST http://127.0.0.1:5000/submit \
 
 ```json
 {
-    "confidence": 0.5,
-    "content_id": "d576c975-2d83-4300-8678-748277eec653",
+    "confidence": 0.7714,
+    "content_id": "987f7ffe-ddd3-46ff-afb7-3820ca6ad2ca",
     "creator_id": "carol",
     "guess": "unsure",
-    "label": "PLACEHOLDER — the label arrives in Milestone 5.",
+    "label": "We can't tell whether this was written by a person or with an AI tool. That happens with a lot of people's own writing, especially when it's clear and simple, so this result isn't saying you did anything wrong, and we take no action on your work because of it. If you'd still like a person to take a look, you can ask for a review using the submission ID shown with this result.",
     "model_score": 0.8357,
     "status": "decided",
-    "style_score": null
+    "style_score": 0.675
 }
 ```
-
-That paragraph is plain, human-style writing, and signal one already scores it
-0.84, almost as AI-like as obvious AI text (0.89). This is the false positive
-from `DESIGN.md`, before any combining rule exists.
 
 **A rejected submission** (too short), which is still logged:
 
@@ -291,39 +312,69 @@ HTTP 422.
 ```bash
 $ curl -X POST http://127.0.0.1:5000/appeal \
   -H "Content-Type: application/json" \
-  -d '{"content_id": "...", "reasoning": "..."}'
-```
-
-```json
-
-```
-
-**What the log shows afterwards**
-
-*Milestone 3: the submission above, read back from the audit log.*
-
-```bash
-$ curl "http://127.0.0.1:5000/log?limit=1"
+  -d '{"content_id": "987f7ffe-ddd3-46ff-afb7-3820ca6ad2ca", "reasoning": "I wrote this myself for my English class. I keep my sentences simple on purpose because English is my second language. I have my first draft in Google Docs with the edit history."}'
 ```
 
 ```json
 {
-    "count": 1,
+    "appealed_at": "2026-11-16T00:11:46+00:00",
+    "content_id": "987f7ffe-ddd3-46ff-afb7-3820ca6ad2ca",
+    "message": "Your appeal has been recorded. A person will review this decision; until then it's marked as under review.",
+    "original_guess": "unsure",
+    "status": "under_review"
+}
+```
+
+**What the log shows afterwards**
+
+The original decision is untouched, and the appeal sits right after it with
+the new status. The `creator_id` on the appeal is copied from the decision,
+not taken from the request.
+
+```bash
+$ curl "http://127.0.0.1:5000/log?limit=2"
+```
+
+```json
+{
+    "count": 2,
     "entries": [
         {
-            "combined_score": 0.5,
-            "content_id": "d576c975-2d83-4300-8678-748277eec653",
+            "combined_score": 0.7714,
+            "content_id": "987f7ffe-ddd3-46ff-afb7-3820ca6ad2ca",
             "creator_id": "carol",
             "guess": "unsure",
-            "label": "PLACEHOLDER — the label arrives in Milestone 5.",
+            "label": "We can't tell whether this was written by a person or with an AI tool. That happens with a lot of people's own writing, especially when it's clear and simple, so this result isn't saying you did anything wrong, and we take no action on your work because of it. If you'd still like a person to take a look, you can ask for a review using the submission ID shown with this result.",
             "model_score": 0.8357,
             "status": "decided",
-            "style_score": null,
-            "timestamp": "2026-11-15T23:56:52+00:00"
+            "style_score": 0.675,
+            "timestamp": "2026-11-16T00:11:38+00:00"
+        },
+        {
+            "content_id": "987f7ffe-ddd3-46ff-afb7-3820ca6ad2ca",
+            "creator_id": "carol",
+            "event": "appeal",
+            "reasoning": "I wrote this myself for my English class. I keep my sentences simple on purpose because English is my second language. I have my first draft in Google Docs with the edit history.",
+            "status": "under_review",
+            "timestamp": "2026-11-16T00:11:46+00:00"
         }
     ]
 }
 ```
+
+**Appeals that are refused** (none of them writes an appeal entry):
+
+| Request | Status | `error` |
+|---|---|---|
+| A second appeal on the same id | 409 | `already_under_review` |
+| The real id with its last character changed | 404 | `unknown_content_id` |
+| `"content_id": "not-a-real-id"` | 404 | `unknown_content_id` |
+| `"content_id": ""` | 400 | `invalid_field` |
+| No `reasoning` | 400 | `missing_field` |
+| `[1,2]` as the body | 400 | `invalid_json` |
+
+Afterwards, `audit.entries_for(id)` returned exactly 2 entries: the decision
+and the appeal.
 
 ---
 

@@ -101,12 +101,42 @@ def score_to_label(score: float) -> tuple[str, str]:
     think if they got it on their own work. That question is the whole
     milestone.
     """
-    # TODO: replace this — thresholds are in config.py
     if score >= config.AI_THRESHOLD:
-        return "ai", "PLACEHOLDER — write the high-confidence AI label."
+        return "ai", LABELS["ai"]
     if score <= config.HUMAN_THRESHOLD:
-        return "human", "PLACEHOLDER — write the high-confidence human label."
-    return "unsure", "PLACEHOLDER — write the unsure label."
+        return "human", LABELS["human"]
+    return "unsure", LABELS["unsure"]
+
+
+# The exact text a reader sees. The README's Label Variants table quotes these
+# word for word — change one here, change it there.
+#
+# The AI and unsure labels both say how to ask for a review, and both say
+# that plain writing is the kind this check gets wrong — because it is
+# (DESIGN.md, "Tracing the false positive").
+LABELS = {
+    "human": (
+        "We think this was probably written by a person. No automated check can "
+        "be certain, so \"probably\" is the strongest thing we ever say."
+    ),
+    "unsure": (
+        "We can't tell whether this was written by a person or with an AI tool. "
+        "That happens with a lot of people's own writing, especially when it's "
+        "clear and simple, so this result isn't saying you did anything wrong, "
+        "and we take no action on your work because of it. If you'd still like "
+        "a person to take a look, you can ask for a review using the submission "
+        "ID shown with this result."
+    ),
+    "ai": (
+        "This writing has a lot in common with text produced by AI tools, so we "
+        "think it may have been written with one. Automated checks like ours "
+        "can be wrong, especially on plain, straightforward writing. If you "
+        "wrote this yourself, ask for a review using the submission ID shown "
+        "with this result, and a person will look at it. Nothing is removed "
+        "while you wait. In your request, tell us how you wrote it; mentioning "
+        "drafts or notes you could share helps."
+    ),
+}
 
 
 def label_ranges() -> list[tuple[str, str]]:

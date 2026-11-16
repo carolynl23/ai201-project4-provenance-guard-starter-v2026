@@ -317,14 +317,56 @@ def appeal():
     to the person on the other end. It's the only thing standing between a
     wrong accusation and nothing at all.
     """
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return _reject(400, "invalid_json",
+                       "Send a JSON object like {\"content_id\": \"...\", \"reasoning\": \"...\"}.")
 
-    # TODO: delete this and build the route.
+    content_id = payload.get("content_id")
+    reasoning = payload.get("reasoning")
+    # Rejections are logged under `appeal_content_id`, not `content_id`, so a
+    # refused appeal never shows up in audit.entries_for() as part of a real
+    # item's history.
+    for field, value in (("content_id", content_id), ("reasoning", reasoning)):
+        if value is None:
+            return _reject(400, "missing_field", f"The request needs a \"{field}\" field.",
+                           field=field, appeal_content_id=content_id)
+    if not isinstance(content_id, str) or not content_id.strip():
+        return _reject(400, "invalid_field", "\"content_id\" has to be a non-empty string.",
+                       field="content_id")
+    if (not isinstance(reasoning, str) or not reasoning.strip()
+            or len(reasoning) > config.MAX_REASONING_CHARS):
+        return _reject(400, "invalid_field",
+                       f"\"reasoning\" has to be a non-empty explanation of at most "
+                       f"{config.MAX_REASONING_CHARS:,} characters.",
+                       field="reasoning", appeal_content_id=content_id)
+    content_id = content_id.strip()
+
+    history = audit.entries_for(content_id)
+    decision = next((e for e in history if e.get("guess") is not None), None)
+    if decision is None:
+        return _reject(404, "unknown_content_id",
+                       "We couldn't find a submission with that ID. Check it matches the "
+                       "one shown with your result.",
+                       appeal_content_id=content_id)
+    if any(e.get("event") == "appeal" for e in history):
+        return _reject(409, "already_under_review",
+                       "This submission has already been sent for review. Your first "
+                       "appeal stands, and a person will look at it.",
+                       creator_id=decision["creator_id"], appeal_content_id=content_id)
+
+    # creator_id comes from the original decision, never the request, so the
+    # appeal is always attributed to whoever submitted.
+    entry = audit.log_appeal(content_id, decision["creator_id"], reasoning.strip())
+
     return jsonify({
-        "error": "not_implemented",
-        "message": "POST /appeal isn't built yet — see the TODO in app.py.",
-        "you_sent": payload,
-    }), 501
+        "content_id": content_id,
+        "status": entry["status"],
+        "original_guess": decision["guess"],
+        "appealed_at": entry["timestamp"],
+        "message": "Your appeal has been recorded. A person will review this decision; "
+                   "until then it's marked as under review.",
+    })
 
 
 # ── Already works ─────────────────────────────────────────────────────────────

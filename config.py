@@ -59,6 +59,7 @@ DETECTOR_MAX_TOKENS = 400
 MIN_WORDS = 25
 MAX_TEXT_CHARS = 20_000
 MAX_CREATOR_ID_CHARS = 100
+MAX_REASONING_CHARS = 5_000   # an appeal's explanation
 
 
 # ─── Scoring (Milestone 4) ───────────────────────────────────────────────────
