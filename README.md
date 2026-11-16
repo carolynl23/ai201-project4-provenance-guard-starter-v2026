@@ -433,25 +433,61 @@ below are where what came back first was wrong, and testing showed it.
 
 ## Rate Limiting
 
-**My limits:** ___ per minute, ___ per day
+**My limits:** 5 per minute, 60 per day
 
 **Why those numbers and not others:**
 <!-- Think about two people: a real writer submitting their own work a few
      times an hour, and a script sending a thousand variations to map your
      thresholds. Your numbers have to be liveable for the first and hostile to
      the second. -->
+- **The real writer:** pastes a piece, reads the label, tweaks a sentence and
+  checks again. That's a few submissions in a minute at most, and 5 leaves
+  room for it. 60 a day is one submission every 15 minutes for 15 hours,
+  enough for a heavy editing day.
+- **The threshold-mapping script:** to find where my 0.40 and 0.80 lines sit,
+  it has to send hundreds of small variations. At 60 a day, one `creator_id`
+  would take weeks.
+- **Why not higher:** with 10 a minute and 200 a day (the starter's numbers),
+  one id could map a threshold in an afternoon.
+- **Why not lower:** 1 or 2 a minute would punish the writer who's re-checking
+  a fixed typo, who is exactly the person I'm trying not to annoy.
 
 **What a caller counts as:** <!-- per address, or per creator_id? They fail
 differently — one script can look like a thousand callers, and one household
 can look like one. -->
+A caller is their `creator_id`, falling back to their address when there's
+no usable one (the starter's `rate_limit_key`).
+- **Why:** a household or classroom sharing one address doesn't share one
+  limit. It also keeps `run_eval.py` and the attack set working on one laptop,
+  where every request comes from `127.0.0.1`.
+- **How it fails:** the `creator_id` is whatever the caller types. A script
+  that makes up a new id for each request looks like a thousand different
+  writers and is never limited. Closing that gap needs accounts, or a second,
+  looser per-address limit on top. I didn't add one because it would throttle
+  my own test tools.
+- **Restarts:** the counts are in memory, so restarting the service resets
+  them.
 
 **The run of status codes when I pushed past it:**
 
 <!-- python run_attacks.py --flood 15 -->
 
 ```
-
+200 200 200 200 200 429 429 429 429 429 429 429 429 429 429
 ```
+
+All 10 rejections are in the audit log (`event: "rejected"`,
+`reason: "rate_limited"`, `limit: "5 per 1 minute"`), as is every request my
+route refuses, such as a 400 for a missing `text`.
+
+**The audit log.** Every decision records the nine required fields. It also
+records a SHA-256 hash and the length of the text (never the text itself) and
+the scoring settings in effect: detector model, weights, disagreement rule and
+thresholds. With those, someone can rebuild a decision without my code. For
+example, 0.6 × 0.8828 + 0.4 × 0.9216 = 0.8983; the signals are 0.04 apart, so
+there's no pull; and 0.8983 ≥ 0.80, so the label is AI. A hash also shows when
+the same text is sent again and again, which is what a mapping script looks
+like.
 
 ---
 
