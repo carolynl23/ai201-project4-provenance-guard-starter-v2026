@@ -54,11 +54,14 @@
 4. **Signal two, `stylometry.style_signal(text)`.** Measures the shape of the
    whole text: sentence-length spread, vocabulary variety and punctuation.
    *Adds:* `style_score` (higher = more likely AI).
-5. **The combining rule, `scoring.combine_signals(model, style)`.** Turns the
-   two scores into one. *Adds:* `confidence`, the combined 0–1 score.
-6. **The label mapping, `scoring.score_to_label(confidence)`.** Compares the
-   score with the thresholds in `config.py`. *Adds:* `guess`
-   (`ai` / `unsure` / `human`) and `label`, the sentence a reader sees.
+5. **The combining rule, `scoring.combine_signals(model, style)`.** Takes a
+   0.6 / 0.4 weighted average. If the signals disagree by more than 0.4 and the
+   average leans AI, it pulls the score halfway back toward 0.5. *Adds:*
+   `confidence`, the combined 0–1 score.
+6. **The label mapping, `scoring.score_to_label(confidence)`.** Scores of 0.40
+   or below are human, 0.80 or above are AI, and anything in between is
+   unsure. The thresholds are in `config.py`. *Adds:* `guess`
+   (`ai` / `unsure` / `human`) and `label`, the full sentence a reader sees.
 7. **Log, then answer.** `audit.log_decision(...)` writes all nine fields with
    `status: "decided"`, and the route returns the response JSON. The reader
    sees the `label`. If they disagree with it, they send the `content_id` to
@@ -380,17 +383,49 @@ and the appeal.
 
 ## How I Used AI
 
-**Moment 1**
+I built this project with Claude Code. I pasted in each milestone's
+instructions, and it read the starter code, wrote the code and the README
+sections, ran the service and committed after each milestone. The two moments
+below are where what came back first was wrong, and testing showed it.
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+**Moment 1: the combining rule**
 
-**Moment 2**
+- *What I asked for:* Milestone 4: build the style signal in `stylometry.py`,
+  run both signals over the calibration inputs, write a combining rule down
+  before coding it, and test it with clearly-AI, clearly-human, formal-human
+  and lightly-edited-AI text.
+- *What came back:* A style signal built from three measures, a calibration
+  script (`calibrate.py`), and a first rule: a 0.6 / 0.4 weighted average, with
+  any strong disagreement between the signals pulled halfway toward 0.5 *in
+  either direction*. It also flipped the type-token ratio, so that high
+  vocabulary variety reads as AI, because the AI samples scored higher than
+  the human ones. That is the opposite of the starter's guess.
+- *What changed:* The calibration run showed the first rule made the human
+  label unreachable. The course staff's note (model 0.14, style 0.59) was
+  dragged from 0.32 up to 0.41, and no text scored under 0.40. The rule was
+  changed so the pull only applies when the average leans AI. The README
+  explains why that's still safe against someone gaming the style signal
+  down. Claude made that change after running `calibrate.py`.
+  **TODO, in your own words: what you checked or changed yourself.**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+**Moment 2: the label wording**
+
+- *What I asked for:* Milestone 5: write the three labels for someone who has
+  never heard the word "threshold", then build `/appeal`.
+- *What came back:* Three labels. The unsure and AI labels both explained that
+  plain writing is what this check gets wrong, and both said how to ask for a
+  review.
+- *What changed:* Following the milestone's "working on your own" option, the
+  labels were given to a fresh Claude session with no context, which answered
+  as the writer. Its reactions were: "probably" felt like doubt; the unsure
+  label left it wondering whether the result counts against it; the AI label
+  made its "stomach drop", and it wanted to know what happens while it waits.
+  The labels were revised to say "probably" is the strongest thing we ever
+  say, that no action is taken on an unsure result, and that nothing is
+  removed during a review. A review timeline was deliberately *not* added,
+  because the service doesn't have one. Claude made these revisions.
+  **TODO, in your own words: what your breakout group said about the unsure
+  label, and anything you changed because of it.**
 
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->
 
